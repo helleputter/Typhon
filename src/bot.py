@@ -2,7 +2,7 @@ from rlbot.agents.base_agent import BaseAgent, SimpleControllerState
 from rlbot.messages.flat.QuickChatSelection import QuickChatSelection
 from rlbot.utils.structures.game_data_struct import GameTickPacket
 
-from util.ball_prediction_analysis import find_slice_at_time
+from util.ball_prediction_analysis import find_matching_slice, find_slice_at_time
 from util.boost_pad_tracker import BoostPadTracker
 from util.drive import steer_toward_target
 from util.sequence import Sequence, ControlStep
@@ -36,6 +36,7 @@ class MyBot(BaseAgent):
             if controls is not None:
                 return controls
         my_car = packet.game_cars[self.index]
+        other_car = packet.game_cars[self.index]
         # Gather some information about our car and the ball
         game_cars = packet.game_cars[:packet.num_cars]
         #print(game_cars)
@@ -58,13 +59,20 @@ class MyBot(BaseAgent):
             # We're far away from the ball, let's try to lead it a little bit
             ball_prediction = self.get_ball_prediction_struct()  # This can predict bounces, etc
             ball_in_future = find_slice_at_time(ball_prediction, packet.game_info.seconds_elapsed + 2)
-
+            #ball_in_future = find_matching_slice(ball_prediction,0,lambda s: abs(s.physics.location.z) <= 5,2)
             # ball_in_future might be None if we don't have an adequate ball prediction right now, like during
             # replays, so check it to avoid errors.
             if ball_in_future is not None:
                 target_location = Vec3(ball_in_future.physics.location)
                 self.renderer.draw_line_3d(ball_location, target_location, self.renderer.cyan())
-
+        if my_car.boost < 50:
+            closest = self.boost_pad_tracker.boost_pads[0].location
+            for boost in self.boost_pad_tracker.boost_pads:
+                if boost.is_active:
+                    if car_location.dist(boost.location) < car_location.dist(closest):
+                        closest = boost.location
+                    
+            target_location = closest
         # Draw some things to help understand what the bot is thinking
         self.renderer.draw_line_3d(car_location, target_location, self.renderer.white())
         self.renderer.draw_string_3d(car_location, 1, 1, f'Speed: {car_velocity.length():.1f}', self.renderer.white())
@@ -77,10 +85,11 @@ class MyBot(BaseAgent):
         # if 750 < car_velocity.length() < 800:
         #     # We'll do a front flip if the car is moving at a certain speed.
         #     return self.begin_front_flip(packet)
-
+        
         controls = SimpleControllerState()
         controls.steer = steer_toward_target(my_car, target_location)
         controls.throttle = 1.0
+        controls.boost = 1
         # You can set more controls if you want, like controls.boost.
 
         return controls
