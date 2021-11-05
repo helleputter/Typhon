@@ -35,9 +35,18 @@ class MyBot(BaseAgent):
             controls = self.active_sequence.tick(packet)
             if controls is not None:
                 return controls
-
-        # Gather some information about our car and the ball
         my_car = packet.game_cars[self.index]
+        # Gather some information about our car and the ball
+        game_cars = packet.game_cars[:packet.num_cars]
+        #print(game_cars)
+        for car in range(0,len(game_cars)-1):
+           
+            if not car is game_cars[self.index]:
+                other_car = game_cars[car]
+            else:
+                #print(packet.game_cars[car])
+                my_car = game_cars[self.index]
+         
         car_location = Vec3(my_car.physics.location)
         car_velocity = Vec3(my_car.physics.velocity)
         ball_location = Vec3(packet.game_ball.physics.location)
@@ -61,9 +70,13 @@ class MyBot(BaseAgent):
         self.renderer.draw_string_3d(car_location, 1, 1, f'Speed: {car_velocity.length():.1f}', self.renderer.white())
         self.renderer.draw_rect_3d(target_location, 8, 8, True, self.renderer.cyan(), centered=True)
 
-        if 750 < car_velocity.length() < 800:
-            # We'll do a front flip if the car is moving at a certain speed.
-            return self.begin_front_flip(packet)
+
+        self.renderer.draw_string_2d(10, 20, 1, 1, str(other_car.boost), self.renderer.black())
+        self.renderer.draw_string_2d(10, 40, 1, 1, str(Vec3(other_car.physics.location)), self.renderer.black())
+        self.renderer.draw_string_2d(10, 60, 1, 1, str(f'Speed: {Vec3(other_car.physics.velocity).length():.1f}'), self.renderer.black())
+        # if 750 < car_velocity.length() < 800:
+        #     # We'll do a front flip if the car is moving at a certain speed.
+        #     return self.begin_front_flip(packet)
 
         controls = SimpleControllerState()
         controls.steer = steer_toward_target(my_car, target_location)
