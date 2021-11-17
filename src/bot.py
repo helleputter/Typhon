@@ -15,10 +15,18 @@ class MyBot(BaseAgent):
         super().__init__(name, team, index)
         self.active_sequence: Sequence = None
         self.boost_pad_tracker = BoostPadTracker()
+        self.friends = []
+        self.foes = []
+        self.my_car = []
 
     def initialize_agent(self):
         # Set up information about the boost pads now that the game is active and the info is available
         self.boost_pad_tracker.initialize_boosts(self.get_field_info())
+        
+    def update_player_lists(self,packet: GameTickPacket):
+        self.foes = [packet.game_cars[i] for i in range(packet.num_cars) if packet.game_cars[i].team != self.team and i != self.index]
+        self.friends = [packet.game_cars[i] for i in range(packet.num_cars) if packet.game_cars[i].team == self.team]
+        self.my_car = packet.game_cars[self.index]
 
     def get_output(self, packet: GameTickPacket) -> SimpleControllerState:
         """
@@ -35,21 +43,11 @@ class MyBot(BaseAgent):
             controls = self.active_sequence.tick(packet)
             if controls is not None:
                 return controls
-        my_car = packet.game_cars[self.index]
-        other_car = packet.game_cars[self.index]
-        # Gather some information about our car and the ball
-        game_cars = packet.game_cars[:packet.num_cars]
-        #print(game_cars)
-        for car in range(0,len(game_cars)-1):
-           
-            if not car is game_cars[self.index]:
-                other_car = game_cars[car]
-            else:
-                #print(packet.game_cars[car])
-                my_car = game_cars[self.index]
+            
+        if packet.num_cars != len(self.friends)+len(self.foes)+1: self.update_player_lists(packet)
          
-        car_location = Vec3(my_car.physics.location)
-        car_velocity = Vec3(my_car.physics.velocity)
+        car_location = Vec3(self.my_car.physics.location)
+        car_velocity = Vec3(self.my_car.physics.velocity)
         ball_location = Vec3(packet.game_ball.physics.location)
 
         # By default we will chase the ball, but target_location can be changed later
@@ -65,7 +63,7 @@ class MyBot(BaseAgent):
             if ball_in_future is not None:
                 target_location = Vec3(ball_in_future.physics.location)
                 self.renderer.draw_line_3d(ball_location, target_location, self.renderer.cyan())
-        if my_car.boost < 50:
+        if self.my_car.boost < 50:
             closest = self.boost_pad_tracker.boost_pads[0].location
             for boost in self.boost_pad_tracker.boost_pads:
                 if boost.is_active:
@@ -78,16 +76,15 @@ class MyBot(BaseAgent):
         self.renderer.draw_string_3d(car_location, 1, 1, f'Speed: {car_velocity.length():.1f}', self.renderer.white())
         self.renderer.draw_rect_3d(target_location, 8, 8, True, self.renderer.cyan(), centered=True)
 
-
-        self.renderer.draw_string_2d(10, 20, 1, 1, str(other_car.boost), self.renderer.black())
-        self.renderer.draw_string_2d(10, 40, 1, 1, str(Vec3(other_car.physics.location)), self.renderer.black())
-        self.renderer.draw_string_2d(10, 60, 1, 1, str(f'Speed: {Vec3(other_car.physics.velocity).length():.1f}'), self.renderer.black())
+        self.renderer.draw_string_2d(10, 20, 1, 1, str(self.foes[0].boost), self.renderer.black())
+        self.renderer.draw_string_2d(10, 40, 1, 1, str(Vec3(self.foes[0].physics.location)), self.renderer.black())
+        self.renderer.draw_string_2d(10, 60, 1, 1, str(f'Speed: {Vec3(self.foes[0].physics.velocity).length():.1f}'), self.renderer.black())
         # if 750 < car_velocity.length() < 800:
         #     # We'll do a front flip if the car is moving at a certain speed.
         #     return self.begin_front_flip(packet)
         
         controls = SimpleControllerState()
-        controls.steer = steer_toward_target(my_car, target_location)
+        controls.steer = steer_toward_target(self.my_car, target_location)
         controls.throttle = 1.0
         controls.boost = 1
         # You can set more controls if you want, like controls.boost.
