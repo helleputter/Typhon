@@ -1,13 +1,9 @@
-# RLBotPythonExample
-Example of a Python bot using the RLBot framework
 
-## Quick Start
-The easiest way to start a Python bot is demonstrated here!
-https://youtu.be/YJ69QZ-EX7k
+# Typhon
+[<img src="src/logo.png" alt="drawing" width="200"/>](src/bot.py)
 
-It shows you how to:
-- Install the RLBot GUI
-- Use it to create a new bot
+Python Rocket League bot using the RLBot framework. The base of the bot was started from this [template](https://github.com/RLBot/RLBotPythonExample).
+
 
 ## Changing the bot
 
@@ -15,3 +11,6 @@ It shows you how to:
 - Bot appearance is controlled by `src/appearance.cfg`
 
 See https://github.com/RLBot/RLBotPythonExample/wiki for documentation and tutorials.
+
+
+
