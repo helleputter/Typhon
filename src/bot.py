@@ -18,6 +18,7 @@ class MyBot(BaseAgent):
         self.friends = []
         self.foes = []
         self.my_car = []
+        self.enemy_goal = []
 
     def initialize_agent(self):
         # Set up information about the boost pads now that the game is active and the info is available
@@ -27,6 +28,8 @@ class MyBot(BaseAgent):
         self.foes = [packet.game_cars[i] for i in range(packet.num_cars) if packet.game_cars[i].team != self.team and i != self.index]
         self.friends = [packet.game_cars[i] for i in range(packet.num_cars) if packet.game_cars[i].team == self.team]
         self.my_car = packet.game_cars[self.index]
+        self.enemy_goal = [goal.location for goal in self.get_field_info().goals if goal.team_num != self.team]
+        #print(self.get_field_info().goals)
 
     def get_output(self, packet: GameTickPacket) -> SimpleControllerState:
         """
@@ -45,48 +48,90 @@ class MyBot(BaseAgent):
                 return controls
             
         if packet.num_cars != len(self.friends)+len(self.foes)+1: self.update_player_lists(packet)
-         
+
         car_location = Vec3(self.my_car.physics.location)
         car_velocity = Vec3(self.my_car.physics.velocity)
         ball_location = Vec3(packet.game_ball.physics.location)
 
         # By default we will chase the ball, but target_location can be changed later
         target_location = ball_location
+        controls = SimpleControllerState()
+        ball_prediction = self.get_ball_prediction_struct()
+        ball_in_future = find_matching_slice(ball_prediction,0,lambda s: abs(s.physics.location.z) <= 100,2)
+        
 
-        if car_location.dist(ball_location) > 1500:
-            # We're far away from the ball, let's try to lead it a little bit
-            ball_prediction = self.get_ball_prediction_struct()  # This can predict bounces, etc
-            ball_in_future = find_slice_at_time(ball_prediction, packet.game_info.seconds_elapsed + 2)
-            #ball_in_future = find_matching_slice(ball_prediction,0,lambda s: abs(s.physics.location.z) <= 5,2)
-            # ball_in_future might be None if we don't have an adequate ball prediction right now, like during
-            # replays, so check it to avoid errors.
-            if ball_in_future is not None:
-                target_location = Vec3(ball_in_future.physics.location)
-                self.renderer.draw_line_3d(ball_location, target_location, self.renderer.cyan())
-        if self.my_car.boost < 50:
-            closest = self.boost_pad_tracker.boost_pads[0].location
-            for boost in self.boost_pad_tracker.boost_pads:
-                if boost.is_active:
-                    if car_location.dist(boost.location) < car_location.dist(closest):
-                        closest = boost.location
-                    
-            target_location = closest
+    
+
+        car_to_ball : Vec3 = ball_location-car_location
+        car_to_ball_direction : Vec3 = Vec3(car_to_ball.normalized())
+    
+
+        start = Vec3(((Vec3(self.enemy_goal[0])+Vec3(-800,0,0)) - ball_location).normalized())
+        end = Vec3(((Vec3(self.enemy_goal[0])+Vec3(800,0,0)) - ball_location).normalized())
+        direction_of_approach : Vec3  = car_to_ball_direction.clamp(start, end)
+        offset_ball_location : Vec3 = (ball_location - (direction_of_approach * 92.75))
+
+        side_of_approach_direction : int = sign(direction_of_approach.cross(Vec3(0, 0, 1)).dot(car_to_ball))
+        car_to_ball_perpendicular : Vec3 = Vec3(car_to_ball.cross(Vec3(0, 0, side_of_approach_direction)).normalized())
+        adjustment : Vec3 = Vec3(abs(car_to_ball.flat().ang_to(direction_of_approach.flat())) * 2560)
+        target_location = Vec3(offset_ball_location + (car_to_ball_perpendicular * adjustment))
+        
+        distance_remaining = (target_location - car_location).length()# an ESTIMATION of how far we need to drive - this might be spot-on or fairly far off
+        
+        time_remaining = ball_in_future.game_seconds - packet.game_info.seconds_elapsed
+        speed_required = distance_remaining / time_remaining
+    
+        if speed_required > 1410 and speed_required < 2300:
+            controls.boost = 1
+            controls.throttle = 1.0
+            controls.brake = 0
+        elif speed_required < 1410: 
+            t = speed_required - car_velocity.x
+            controls.throttle = cap((t**2) * sign(t)/1000, -1.0, 1.0)
+            controls.boost = 0
+            controls.brake = 0
+        elif speed_required > 2300:
+            controls.brake = 0
+            controls.throttle = 1
+                
+        if packet.game_info.is_kickoff_pause:
+            target_location = ball_location
+            controls.boost = 1
+
+        #target_location = ball_location     
         # Draw some things to help understand what the bot is thinking
         self.renderer.draw_line_3d(car_location, target_location, self.renderer.white())
         self.renderer.draw_string_3d(car_location, 1, 1, f'Speed: {car_velocity.length():.1f}', self.renderer.white())
         self.renderer.draw_rect_3d(target_location, 8, 8, True, self.renderer.cyan(), centered=True)
 
-        self.renderer.draw_string_2d(10, 20, 1, 1, str(self.foes[0].boost), self.renderer.black())
-        self.renderer.draw_string_2d(10, 40, 1, 1, str(Vec3(self.foes[0].physics.location)), self.renderer.black())
+        self.renderer.draw_string_2d(10, 20, 1, 1, str(packet.game_info.is_kickoff_pause), self.renderer.black())
+        self.renderer.draw_string_2d(10, 40, 1, 1, str(distance_remaining), self.renderer.white())
         self.renderer.draw_string_2d(10, 60, 1, 1, str(f'Speed: {Vec3(self.foes[0].physics.velocity).length():.1f}'), self.renderer.black())
+        
+        self.renderer.draw_rect_3d(offset_ball_location,20,20,True, self.renderer.red(), centered=True)
+        self.renderer.draw_rect_3d(start,8,8,True, self.renderer.blue(), centered=True)
+        self.renderer.draw_rect_3d(end,8,8,True, self.renderer.blue(), centered=True)
+        self.renderer.draw_line_3d(car_location, direction_of_approach, self.renderer.white())
+        self.renderer.draw_rect_3d(ball_in_future.physics.location,20,20,True, self.renderer.black(),centered=True)
+        
+        
+        self.renderer.draw_string_2d(10, 80, 1, 1, str(packet.game_info.seconds_elapsed), self.renderer.black())
+        self.renderer.draw_string_2d(10, 100, 1, 1, str(f"Required Speed: {speed_required}"), self.renderer.black())
+        self.renderer.draw_string_2d(10, 120, 1, 1, str(car_velocity.x), self.renderer.black())
+        
+        self.renderer.draw_string_2d(10, 140, 1, 1, str(distance_remaining), self.renderer.black())
+        self.renderer.draw_string_2d(10, 160, 1, 1, str(f"Ball Loc Z: {packet.game_ball.physics.location.z}"), self.renderer.black())
+        self.renderer.draw_string_2d(10, 180, 1, 1, str(f"Speeds Line up: {5 < car_velocity.x - speed_required < 10}"), self.renderer.black())
+
+        
+
         # if 750 < car_velocity.length() < 800:
         #     # We'll do a front flip if the car is moving at a certain speed.
         #     return self.begin_front_flip(packet)
         
-        controls = SimpleControllerState()
+        
         controls.steer = steer_toward_target(self.my_car, target_location)
-        controls.throttle = 1.0
-        controls.boost = 1
+        
         # You can set more controls if you want, like controls.boost.
 
         return controls
@@ -106,3 +151,21 @@ class MyBot(BaseAgent):
 
         # Return the controls associated with the beginning of the sequence so we can start right away.
         return self.active_sequence.tick(packet)
+    
+def sign(x):
+#returns the sign of a number, -1, 0, +1
+    if x < 0.0:
+        return -1
+    elif x > 0.0:
+        return 1
+    else:
+        return 0.0
+    
+    
+def cap(x, low, high):
+    #caps/clamps a number between a low and high value
+    if x < low:
+        return low
+    elif x > high:
+        return high
+    return 
