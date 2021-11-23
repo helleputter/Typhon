@@ -107,3 +107,17 @@ class Vec3:
         """Returns the angle to the ideal vector. Angle will be between 0 and pi."""
         cos_ang = self.dot(ideal) / (self.length() * ideal.length())
         return math.acos(cos_ang)
+    
+    def clamp(self, start, end):
+        # Similar to integer clamping, Vector3's clamp() forces the Vector3's direction between a start and end Vector3
+        # Such that Start < Vector3 < End in terms of clockwise rotation
+        # Note that this is only 2D, in the x and y axis
+        left_right = Vec3(0, 0, -1)
+        right = self.dot(end.cross(left_right)) < 0
+        left = self.dot(start.cross(left_right)) > 0
+        if (right and left) if end.dot(start.cross(left_right)) > 0 else (right or left):
+            return self
+        if start.dot(self) < end.dot(self):
+            return end
+        return start
+
